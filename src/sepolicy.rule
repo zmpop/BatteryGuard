@@ -1,0 +1,2 @@
+allow magisk sysfs_battery:file { getattr open read write append }
+allow magisk sysfs:file { getattr open read write append }

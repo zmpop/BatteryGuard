@@ -1,0 +1,7 @@
+id=battery_guard
+name=Battery Guard - 充电阈值守护
+version=v1.0
+versionCode=100
+author=WorkBuddy
+description=Samsung 平板电池充电阈值控制：达到上限停充、低于下限复充，带滞回防抖；开机自动探测 sysfs 充电控制节点并记录日志，卸载自动恢复系统默认充电行为。
+updateJson=
