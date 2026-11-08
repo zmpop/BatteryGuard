@@ -9,20 +9,38 @@
 #   sh webui.sh open     用系统浏览器打开面板
 #
 # 实现方式：busybox httpd（Magisk 自带）在 127.0.0.1 上提供静态页 + /cgi-bin 接口，
-# 只监听回环地址，不对外暴露；空闲超时后自动关闭。
+# 只监听回环地址，不对外暴露；启动后按固定存活时长（WEBUI_TTL，默认 5 分钟）自动关闭。
+# 注意：计时从「启动那一刻」起算，页面是否在取数都不影响——不做续命，到点就关。
 
 . "$(dirname "$0")/lib.sh"
 load_conf
 
 PORT=${WEBUI_PORT:-8654}
-IDLE=${WEBUI_IDLE_TIMEOUT:-300}
 PIDF=$PERSIST_DIR/webui.pid
 PORTF=$PERSIST_DIR/webui.port
 ALIVEF=$PERSIST_DIR/webui.alive
+DEADLINEF=$PERSIST_DIR/webui.deadline
 WDF=$PERSIST_DIR/webui.wd
 WEBROOT=$MODDIR/webroot
-# 空闲看门狗的检查粒度（秒）：越细越准，但每个周期都要起一次 shell
-IDLE_TICK=30
+# 看门狗的检查粒度（秒）：只影响关闭时刻的精度，不影响总时长
+TICK=15
+
+# 存活时长（秒）：0 或非法值 → 0 表示常驻
+ttl_seconds() {
+  t=${WEBUI_TTL:-300}
+  case "$t" in ''|*[!0-9]*) t=300 ;; esac
+  [ "$t" -gt 0 ] 2>/dev/null && echo "$t" || echo 0
+}
+
+# 把「启动时刻 + 存活时长」写成绝对截止时间：看门狗只看这个数，不看页面活动
+set_deadline() {
+  t=$(ttl_seconds)
+  if [ "$t" -gt 0 ]; then
+    echo $(( $(date +%s) + t )) > "$DEADLINEF" 2>/dev/null
+  else
+    rm -f "$DEADLINEF" 2>/dev/null
+  fi
+}
 
 find_bb() {
   for b in /data/adb/magisk/busybox /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox; do
@@ -56,15 +74,15 @@ find_httpd() {
     grep -F "$WEBROOT" | head -n 1 | awk '{print $1}'
 }
 
-# 空闲看门狗：ALIVEF 记录「最近一次页面活动」，每 IDLE_TICK 秒核对一次，
-# 超过 IDLE 秒没刷新就关掉自己这一代实例。IDLE=0 表示常驻，不装看门狗。
+# 存活看门狗：到 DEADLINEF 记录的时刻就关掉自己这一代实例，与页面有无活动无关。
+# TTL=0 表示常驻，不装看门狗。
 #
 # 必须用「独立进程」拉起（sh webui.sh __watchdog），不能在当前 shell 里 fork 子 shell：
 # mksh 为恢复重定向会在 fd 10+ 保存原 stdout 的副本，那份副本会一直攥着调用方的管道，
-# 导致 $(webui.sh start) 这种命令替换被拖住整整一个空闲周期才返回。
-idle_watchdog() {
+# 导致 $(webui.sh start) 这种命令替换被拖住整整一个存活周期才返回。
+watchdog_start() {
   wd_target=$1
-  [ "${IDLE:-0}" -gt 0 ] 2>/dev/null || return 0
+  [ "$(ttl_seconds)" -gt 0 ] || return 0
   old=$(cat "$WDF" 2>/dev/null | tr -dc '0-9')
   [ -n "$old" ] && kill -9 "$old" 2>/dev/null
   setsid sh "$MODDIR/common/webui.sh" __watchdog "$wd_target" >/dev/null 2>&1 < /dev/null &
@@ -75,19 +93,22 @@ idle_watchdog() {
 do_watchdog() {
   wd_target=$1
   [ -n "$wd_target" ] || return 1
-  [ "${IDLE:-0}" -gt 0 ] 2>/dev/null || return 0
+  ttl=$(ttl_seconds)
+  [ "$ttl" -gt 0 ] || return 0
   echo $$ > "$WDF" 2>/dev/null
   while :; do
-    sleep "$IDLE_TICK"
+    sleep "$TICK"
+    # 实例已被 stop 或换成新一代：本看门狗使命结束，交给新的那个
     cur=$(cat "$PIDF" 2>/dev/null | tr -dc '0-9')
     [ "$cur" = "$wd_target" ] || return 0
     [ -d "/proc/$wd_target" ] || return 0
-    last=$(cat "$ALIVEF" 2>/dev/null | tr -dc '0-9')
+    dl=$(cat "$DEADLINEF" 2>/dev/null | tr -dc '0-9')
     now=$(date +%s 2>/dev/null | tr -dc '0-9')
-    [ -n "$now" ] || return 0
-    [ -n "$last" ] || last=$now
-    [ $((now - last)) -ge "$IDLE" ] || continue
-    log_print "面板空闲 ${IDLE}s（最近活动 ${last}）：关闭 httpd PID=$wd_target"
+    if [ -z "$dl" ] || [ -z "$now" ]; then
+      return 0
+    fi
+    [ "$now" -ge "$dl" ] || continue
+    log_print "面板存活 ${ttl}s 到点（启动于 $((dl - ttl))，最近活动 $(cat "$ALIVEF" 2>/dev/null | tr -dc '0-9')）：关闭 httpd PID=$wd_target"
     sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1
     return 0
   done
@@ -98,9 +119,10 @@ do_start() {
   [ -d "$WEBROOT" ] || { echo ""; return 1; }
 
   if alive_pid >/dev/null 2>&1; then
-    # 已在运行：续命（刷新活动时间）并确保看门狗在岗，然后原样回显端口
+    # 已在运行：把计时重新从此刻开始（只有显式 start/点「操作」会重置，页面取数不会）
     date +%s > "$ALIVEF" 2>/dev/null
-    idle_watchdog "$(alive_pid)"
+    set_deadline
+    watchdog_start "$(alive_pid)"
     cat "$PORTF" 2>/dev/null | tr -dc '0-9'
     return 0
   fi
@@ -112,7 +134,8 @@ do_start() {
     echo "$hp" > "$PIDF"
     echo "$PORT" > "$PORTF"
     date +%s > "$ALIVEF" 2>/dev/null
-    idle_watchdog "$hp"
+    set_deadline
+    watchdog_start "$hp"
     echo "$PORT"
     return 0
   fi
@@ -146,9 +169,10 @@ do_start() {
   fi
   echo "$hp" > "$PIDF"
   echo "$p" > "$PORTF"
-  # 起看门狗前先记一次活动时间，否则 IDLE 从「没有任何时间戳」开始算会立刻超时
+  # 记下启动时刻（仅用于日志展示），并把截止时间定为「此刻 + TTL」
   date +%s > "$ALIVEF" 2>/dev/null
-  idle_watchdog "$hp"
+  set_deadline
+  watchdog_start "$hp"
 
   echo "$p"
   return 0
@@ -166,7 +190,7 @@ do_stop() {
     awk '{print $1}' | while read -r pid; do
       [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
     done
-  rm -f "$PIDF" "$PORTF" "$ALIVEF" "$WDF" 2>/dev/null
+  rm -f "$PIDF" "$PORTF" "$ALIVEF" "$DEADLINEF" "$WDF" 2>/dev/null
   return 0
 }
 
@@ -195,6 +219,6 @@ case "${1:-start}" in
   status)  p=$(alive_pid) && echo "$p $(cat "$PORTF" 2>/dev/null | tr -dc '0-9')" ;;
   url)     do_url ;;
   open)    do_open ;;
-  __watchdog) do_watchdog "$2" ;;   # 内部用：由 idle_watchdog 以独立进程拉起
+  __watchdog) do_watchdog "$2" ;;   # 内部用：由 watchdog_start 以独立进程拉起
   *)       echo "用法: $0 start|stop|restart|status|url|open"; exit 1 ;;
 esac

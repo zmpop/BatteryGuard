@@ -35,7 +35,7 @@ if [ "${WEBUI_AUTOSTART:-0}" = "1" ] && [ -d "$MODDIR/webroot" ]; then
 else
   # 顺手清掉上次运行留下的 PID/端口/活动时间戳（进程已随关机消失）
   sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1 < /dev/null
-  log_print "service.sh: 控制面板按需启动（WEBUI_AUTOSTART=0），点「操作」或运行 action.sh 时才起，空闲 ${WEBUI_IDLE_TIMEOUT}s 自动关闭"
+  log_print "service.sh: 控制面板按需启动（WEBUI_AUTOSTART=0），点「操作」或运行 action.sh 时才起，启动后 ${WEBUI_TTL}s 自动关闭"
 fi
 
 exit 0

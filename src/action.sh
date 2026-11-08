@@ -42,12 +42,13 @@ if [ -n "$PORT" ]; then
   else
     echo "未能自动打开浏览器，请手动访问上面的地址"
   fi
-  if [ "${WEBUI_IDLE_TIMEOUT:-0}" -gt 0 ] 2>/dev/null; then
-    T=${WEBUI_IDLE_TIMEOUT}
+  T=${WEBUI_TTL:-0}
+  case "$T" in ''|*[!0-9]*) T=0 ;; esac
+  if [ "$T" -gt 0 ] 2>/dev/null; then
     if [ $((T % 60)) -eq 0 ]; then
-      echo "面板空闲 $((T / 60)) 分钟后自动关闭（重新点「操作」即可再次打开）"
+      echo "面板将在 $((T / 60)) 分钟后自动关闭（从打开算起，不看是否在用；再点「操作」重新计时）"
     else
-      echo "面板空闲 ${T}s 后自动关闭（重新点「操作」即可再次打开）"
+      echo "面板将在 ${T}s 后自动关闭（从打开算起，不看是否在用；再点「操作」重新计时）"
     fi
   fi
   echo ""

@@ -8,7 +8,7 @@
 - 开机自动探测当前设备实际可用的充电控制节点，探测结果写入日志；
 - 拔掉充电器时自动恢复系统默认充电行为；
 - 自带**可视化控制面板**（`http://127.0.0.1:8654/`），拖动滑块即可改上下限（热生效）；
-  **按需启动**：Magisk 28+ 点模块卡片的「操作」才拉起，空闲 5 分钟自动关闭，不占后台；
+  **按需启动**：Magisk 28+ 点模块卡片的「操作」才拉起，启动后固定 5 分钟自动关闭（不看是否在用），不占后台；
   Magisk 26.x 无此按钮，可临时把 `WEBUI_AUTOSTART` 改回 1 用桌面图标 / 书签进入；
 - 模块卸载时自动把节点复位，恢复系统默认充电行为。
 
@@ -135,7 +135,7 @@ battery_guard/                      模块根目录 /data/adb/modules/battery_gu
 | `RESTART_DELAY` | 30 | 守护进程异常退出后的重启延时（秒） |
 | `EARLY_START` | 0 | 1 = 在开机动画阶段就启动守护（默认开机完成后启动） |
 | `WEBUI_PORT` | 8654 | 控制面板监听端口，只绑 127.0.0.1；被占用时自动顺延 +1 |
-| `WEBUI_IDLE_TIMEOUT` | 300 | 面板空闲多少秒后自动关闭；0 = 常驻不关。计时从「最后一次页面活动」算起 |
+| `WEBUI_TTL` | 300 | 面板存活时长（秒）：从 `start` 那一刻算起，到点无条件关闭；0 = 常驻不关。页面取数不会续期 |
 | `WEBUI_AUTOSTART` | 0 | 0 = 按需启动（点「操作」/`action.sh` 才拉起）；1 = 开机常驻（旧行为，适合无「操作」按钮的 Magisk 26.x） |
 
 ---
@@ -482,8 +482,8 @@ Magisk 26.x 的变通做法：模块默认**按需启动**（`WEBUI_AUTOSTART=0`
         │     ├─ 找 busybox（/data/adb/magisk/busybox 等）
         │     ├─ 启动 httpd -f -p 127.0.0.1:8654 -h webroot/
         │     │     · 只监听回环地址，端口被占用就 8655/8656… 顺延
-        │     │     · 写 webui.pid / webui.port，并把 webui.alive 置为当前时间
-        │     │     · 起空闲看门狗（WEBUI_IDLE_TIMEOUT>0 时）：每 30s 核对一次 webui.alive
+        │     │     · 写 webui.pid / webui.port，并写 webui.deadline = 启动时刻 + WEBUI_TTL
+        │     │     · 起存活看门狗（WEBUI_TTL>0 时）：每 15s 比对一次 webui.deadline
         │     └─ 回显端口
         ├─ sh common/webui.sh open  → am start -a VIEW -d http://127.0.0.1:PORT/
         │     （失败则回退到点名三星浏览器）
@@ -492,9 +492,11 @@ Magisk 26.x 的变通做法：模块默认**按需启动**（`WEBUI_AUTOSTART=0`
 
 - 面板里**不需要 root 授权弹窗**：httpd 由 action.sh 以 root 拉起，页面通过 CGI 访问本机接口。
 - 浏览器没打开时，按摘要里的地址手动访问即可；端口在 `webui.port` 里。
-- **自动关闭**：页面每 3 秒取一次 `/cgi-bin/state`，每次都会刷新 `webui.alive`；浏览器关掉或平板熄屏后不再有请求，
-  看门狗在 `WEBUI_IDLE_TIMEOUT`（默认 300 秒 = 5 分钟）后杀掉 httpd 并清掉 pid/port/alive 文件，
-  日志留一行 `面板空闲 300s（最近活动 …）：关闭 httpd PID=…`。再点「操作」即可重新拉起，端口不变。
+- **自动关闭（固定时长，不续期）**：`start` 时把截止时间写进 `webui.deadline`（启动时刻 + `WEBUI_TTL`），
+  看门狗每 15 秒只比这一个数，与页面是否在取数无关；到点杀掉 httpd 并清掉 pid/port/alive/deadline 文件，
+  日志留一行 `面板存活 300s 到点（启动于 …）：关闭 httpd PID=…`。
+  页面每 3 秒取数只更新 `webui.alive`（仅用于日志里的「最近活动」），**不会延长时间**。
+  再点一次「操作」会重新从 0 计 5 分钟，端口不变。
 - 页面关闭不影响控制，守护进程独立在后台跑；面板只是「看板 + 设置入口」，关掉不影响停充逻辑。
 - 默认按需启动：开机后 `service.sh` **不会**拉起面板，日志是
   `service.sh: 控制面板按需启动（WEBUI_AUTOSTART=0）…`；点「操作」后才会打印 `控制面板: http://127.0.0.1:8654/`。

@@ -1,7 +1,7 @@
 id=battery_guard
 name=Battery Guard - 充电阈值守护
-version=v1.1.4
-versionCode=114
+version=v1.1.5
+versionCode=115
 author=WorkBuddy
-description=Samsung 平板电池充电阈值控制：达到上限停充、低于下限复充，带滞回防抖；控制面板 http://127.0.0.1:8654/ 改为按需启动——Magisk 28+ 点「操作」才拉起，空闲 5 分钟自动关闭（不再开机常驻）；开机自动探测 sysfs 充电控制节点并记录日志，卸载自动恢复系统默认充电行为。
+description=Samsung 平板电池充电阈值控制：达到上限停充、低于下限复充，带滞回防抖；控制面板 http://127.0.0.1:8654/ 改为按需启动——Magisk 28+ 点「操作」才拉起，启动后固定 5 分钟自动关闭（不因页面活动续期，也不开机常驻）；开机自动探测 sysfs 充电控制节点并记录日志，卸载自动恢复系统默认充电行为。
 updateJson=
