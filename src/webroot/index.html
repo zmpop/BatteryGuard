@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#2563eb">
+<!-- 本地页面随模块升级会变：禁止浏览器缓存旧副本 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Battery Guard · 充电阈值</title>
 <style>
   :root{
@@ -151,8 +154,8 @@
   </section>
 
   <footer>
-    守护进程在后台独立运行，关闭本页面不会停止控制<br>
-    面板空闲 30 分钟自动关闭，再次点模块「操作」即可重新打开
+    守护进程在后台独立运行，关闭本页面不影响充电控制<br>
+    <span id="ttlInfo">面板启动后固定 5 分钟自动关闭（不因页面活动延长）</span>
   </footer>
 </div>
 
@@ -194,6 +197,21 @@ async function apiLog(){
 const $ = id => document.getElementById(id);
 const uR = $('uRange'), lR = $('lRange');
 let saved = {u:80, l:40};
+// 面板关闭时刻（浏览器本地时间，毫秒）；0 = 未获取到 / 常驻模式
+let ttlAt = 0;
+
+function paintTtl(){
+  const el = $('ttlInfo');
+  if (!ttlAt) return;
+  const left = Math.max(0, Math.round((ttlAt - Date.now()) / 1000));
+  if (left <= 0){
+    el.textContent = '存活时间已到，面板正在关闭…';
+    return;
+  }
+  const m = Math.floor(left / 60), s = left % 60;
+  const human = m > 0 ? m + ' 分 ' + s + ' 秒' : s + ' 秒';
+  el.textContent = '面板将在 ' + human + ' 后自动关闭（固定时长，再点模块「操作」重新计时）';
+}
 
 function paint(){
   const u = +uR.value, l = +lR.value;
@@ -235,6 +253,16 @@ async function refresh(){
     $('plugInfo').textContent = s.plugged === 1 ? '充电器已连接' : '未插充电器';
     $('nodeInfo').textContent = s.kind === 'none' ? '未探测到控制节点' : (s.nodeDesc + ' · ' + s.node.split('/').pop());
     $('logHint').textContent = s.poll + 's 轮询';
+    // 底部：按接口给的剩余秒数换算成本地截止时刻，之后每 1 秒本地递减（不用额外请求）
+    if ((+s.ttl || 0) > 0 && (+s.remain || 0) > 0){
+      ttlAt = Date.now() + s.remain * 1000;
+      paintTtl();
+    }else{
+      ttlAt = 0;
+      $('ttlInfo').textContent = (+s.ttl || 0) > 0
+        ? '存活时间已到，面板正在关闭…'
+        : '面板为常驻模式，不会自动关闭';
+    }
     // 首次加载时用设备上的真实值初始化滑块
     if (s.upper && !window.__inited){
       window.__inited = true;
@@ -244,6 +272,11 @@ async function refresh(){
   }catch(e){
     $('stateChip').textContent = '连接失败';
     $('stateChip').className = 'chip off';
+    // 面板已按固定时长退出，或设备端不可达：明确告诉用户怎么再打开
+    if (ttlAt){
+      ttlAt = 0;
+      $('ttlInfo').textContent = '面板已关闭，点模块「操作」可重新打开';
+    }
   }
 }
 
@@ -280,6 +313,7 @@ refresh();
 loadLog();
 setInterval(refresh, 3000);
 setInterval(loadLog, 15000);
+setInterval(paintTtl, 1000);
 </script>
 </body>
 </html>

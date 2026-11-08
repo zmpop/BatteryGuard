@@ -10,7 +10,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
-OUT = os.path.join(HERE, "BatteryGuard-v1.1.1.zip")
+OUT = os.path.join(HERE, "BatteryGuard-v1.1.6.zip")
 
 EXECUTABLES = {
     "service.sh",

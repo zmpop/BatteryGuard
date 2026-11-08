@@ -16,10 +16,20 @@ json_escape() {
 }
 
 api_state_json() {
-  # 页面每 3s 取一次状态：这里刷新活动时间，空闲看门狗据此续命
+  # 页面每 3s 取一次状态：这里刷新活动时间，仅供日志展示——面板寿命由 webui.deadline 决定，
+  # 页面取数不会延长（这是 v1.1.5 起的「固定存活」语义）
   webui_touch
   load_conf
   load_node
+  # 面板剩余寿命：给页面底部显示倒计时用；未启用（TTL=0）或没在跑时给 0
+  ttl=$(printf '%s' "${WEBUI_TTL:-0}" | tr -dc '0-9'); [ -n "$ttl" ] || ttl=0
+  dl=$(cat "$PERSIST_DIR/webui.deadline" 2>/dev/null | tr -dc '0-9')
+  now=$(date +%s 2>/dev/null | tr -dc '0-9')
+  remain=0
+  if [ "$ttl" -gt 0 ] 2>/dev/null && [ -n "$dl" ] && [ -n "$now" ]; then
+    remain=$((dl - now))
+    [ "$remain" -ge 0 ] || remain=0
+  fi
   CAP_NODE=$(find_cap_node)
   cap=$(read_capacity)
   st=$(read_batt_status)
@@ -32,8 +42,8 @@ api_state_json() {
     current_limit) kdesc="限流" ;;
     *) kdesc="无" ;;
   esac
-  printf '{"upper":%s,"lower":%s,"poll":%s,"minSwitch":%s,"cap":%s,' \
-    "$UPPER_LIMIT" "$LOWER_LIMIT" "$POLL_INTERVAL" "$MIN_SWITCH_INTERVAL" "$cap"
+  printf '{"upper":%s,"lower":%s,"poll":%s,"minSwitch":%s,"cap":%s,"ttl":%s,"remain":%s,' \
+    "$UPPER_LIMIT" "$LOWER_LIMIT" "$POLL_INTERVAL" "$MIN_SWITCH_INTERVAL" "$cap" "$ttl" "$remain"
   printf '"battery":"%s","plugged":%s,"state":"%s","kind":"%s","nodeDesc":"%s",' \
     "$(json_escape "$st")" "$pg" "$(json_escape "$state")" "$NODE_KIND" "$(json_escape "$kdesc")"
   printf '"node":"%s","enabled":%s,"daemon":%s,"pid":%s,"model":"%s"}\n' \
