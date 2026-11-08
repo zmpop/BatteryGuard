@@ -1,0 +1,9 @@
+# shell / cgi 脚本必须是 LF，否则推到 GitHub 后在设备上执行会报 ^M 语法错误
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.zip   binary
+*.png   binary
+src/webroot/cgi-bin/* text eol=lf
