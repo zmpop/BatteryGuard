@@ -10,7 +10,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
-OUT = os.path.join(HERE, "BatteryGuard-v1.0.zip")
+OUT = os.path.join(HERE, "BatteryGuard-v1.1.zip")
 
 EXECUTABLES = {
     "service.sh",
@@ -22,6 +22,11 @@ EXECUTABLES = {
     "common/probe.sh",
     "common/supervisor.sh",
     "common/battery-guard-daemon.sh",
+    "common/api.sh",
+    "common/webui.sh",
+    "webroot/cgi-bin/state",
+    "webroot/cgi-bin/set",
+    "webroot/cgi-bin/log",
     "META-INF/com/google/android/update-binary",
 }
 

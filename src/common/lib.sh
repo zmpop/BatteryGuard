@@ -32,6 +32,8 @@ PROBE_WRITE_TEST=1
 CURRENT_LIMIT_VALUE=0
 RESTART_DELAY=30
 EARLY_START=0
+WEBUI_PORT=8654
+WEBUI_IDLE_TIMEOUT=1800
 TRUST_USB_ONLINE=0
 TRUST_CHARGING_TYPE=1
 TRUST_CHARGING_SOURCE=1
@@ -393,6 +395,14 @@ kill_all() {
 }
 
 is_daemon_running() {
+  # 快路径：PID 文件存在且对应进程确实在跑本脚本（避免每次扫 /proc 全表）
+  p=$(cat "$PID_FILE" 2>/dev/null | tr -dc '0-9')
+  if [ -n "$p" ] && [ -r "/proc/$p/cmdline" ]; then
+    case "$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)" in
+      *$DAEMON_SCRIPT*) echo "$p"; return 0 ;;
+    esac
+  fi
+  # 兜底：PID 文件丢失或失效时才全表扫描（786 个进程约 4s，只在异常时付出）
   for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ -r "$p/cmdline" ] || continue
@@ -405,6 +415,12 @@ is_daemon_running() {
 }
 
 is_supervisor_running() {
+  p=$(cat "$PERSIST_DIR/supervisor.pid" 2>/dev/null | tr -dc '0-9')
+  if [ -n "$p" ] && [ -r "/proc/$p/cmdline" ]; then
+    case "$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)" in
+      *supervisor.sh*) echo "$p"; return 0 ;;
+    esac
+  fi
   for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ -r "$p/cmdline" ] || continue

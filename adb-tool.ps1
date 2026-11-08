@@ -11,6 +11,7 @@
    .\adb-tool.ps1 restart              用最新脚本重启守护进程
    .\adb-tool.ps1 probe                重新探测充电控制节点
    .\adb-tool.ps1 switch               查看所有状态切换记录
+   .\adb-tool.ps1 ui                   打开平板上的控制面板（滑块设置上下限）
    .\adb-tool.ps1 set 85 45            上限 85% 下限 45%（热生效）
    .\adb-tool.ps1 uninstall            恢复默认充电并标记待移除
    .\adb-tool.ps1 purge                连同配置与日志一并清除
@@ -35,7 +36,7 @@ try {
 
 # ---------- 常量 ----------
 $DefaultDevice = '192.168.8.176:5555'
-$ZipName       = 'BatteryGuard-v1.0.zip'
+$ZipName       = 'BatteryGuard-v1.1.zip'
 $ZipPath       = Join-Path $PSScriptRoot $ZipName
 $Log           = '/data/adb/battery-guard/battery-guard.log'
 $Conf          = '/data/adb/battery-guard/battery-guard.conf'
@@ -74,6 +75,7 @@ function Show-Usage {
   .\adb-tool.ps1 restart              用最新脚本重启守护进程
   .\adb-tool.ps1 probe                重新探测充电控制节点
   .\adb-tool.ps1 switch               状态切换记录
+  .\adb-tool.ps1 ui                   打开控制面板（滑块设置上下限）
   .\adb-tool.ps1 set 85 45            上限 85% 下限 45%
   .\adb-tool.ps1 uninstall            恢复默认充电 + 标记待移除
   .\adb-tool.ps1 purge                连同配置与日志清除
@@ -223,6 +225,19 @@ switch ($Cmd) {
         Ok "已写入 $Conf"
         Start-Sleep -Seconds 2
         Invoke-Dev "grep -e `"^UPPER_LIMIT=`" -e `"^LOWER_LIMIT=`" $Conf" | ForEach-Object { Write-Host "    $_" }
+    }
+
+    'ui' {
+        Step "启动控制面板并在平板上打开"
+        Invoke-Dev "sh $ModDir/common/webui.sh start" | Out-Null
+        $port = ((Invoke-Dev "cat $PersistDir/webui.port" | Out-String).Trim() -replace '\D', '')
+        if ($port) {
+            Invoke-Dev "sh $ModDir/common/webui.sh open" | Out-Null
+            Ok "面板地址: http://127.0.0.1:$port/"
+            Warn "已在平板浏览器中打开；也可手动输入上面的地址"
+        } else {
+            Err "启动失败：请确认模块已更新到 v1.1（含 webroot 目录）"
+        }
     }
 
     'uninstall' {

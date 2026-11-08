@@ -40,7 +40,18 @@ for p in /proc/[0-9]*; do
     *battery-guard-daemon.sh*) kill -9 "$pid" 2>/dev/null ;;
   esac
 done
-echo "  [1/4] 守护进程已停止"
+# 1b. 停止控制面板服务（busybox httpd 与其看门狗）
+for p in /proc/[0-9]*; do
+  pid=${p#/proc/}
+  [ -r "$p/cmdline" ] || continue
+  cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
+  case "$cmd" in
+    *httpd*"/data/adb/modules/battery_guard/webroot"*) kill -9 "$pid" 2>/dev/null ;;
+    *webui.sh*) kill -9 "$pid" 2>/dev/null ;;
+  esac
+done
+rm -f "$PERSIST_DIR/webui.pid" "$PERSIST_DIR/webui.port" 2>/dev/null
+echo "  [1/4] 守护进程与控制面板已停止"
 
 # 2. 复位被选中的节点
 if [ -f "$NODES_FILE" ]; then

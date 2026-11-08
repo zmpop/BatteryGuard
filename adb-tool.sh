@@ -10,6 +10,7 @@
 #    ./adb-tool.sh status              查看电量 / 节点 / 守护状态
 #    ./adb-tool.sh probe               重新执行一次节点探测
 #    ./adb-tool.sh switch              查看所有状态切换记录
+#    ./adb-tool.sh ui                  打开平板上的控制面板（滑块设置上下限）
 #    ./adb-tool.sh set 85 45           把上限改成 85%、下限改成 45%
 #    ./adb-tool.sh 192.168.1.20:5555   指定其它设备地址
 # ============================================================
@@ -20,7 +21,7 @@ set -u
 export MSYS_NO_PATHCONV=1
 
 DEFAULT_DEVICE="192.168.8.176:5555"
-ZIP="BatteryGuard-v1.0.zip"
+ZIP="BatteryGuard-v1.1.zip"
 ZIP_DIR=$(cd "$(dirname "$0")" && pwd)
 LOG="/data/adb/battery-guard/battery-guard.log"
 CONF="/data/adb/battery-guard/battery-guard.conf"
@@ -32,7 +33,7 @@ CMD="install-reboot"
 for a in "$@"; do
   case "$a" in
     *:*)          DEVICE="$a" ;;
-    install|log|status|probe|switch|set|uninstall|purge|restart) CMD="$a" ;;
+    install|log|status|probe|switch|set|ui|uninstall|purge|restart) CMD="$a" ;;
   esac
 done
 
@@ -112,6 +113,18 @@ case "$CMD" in
     U=${2:-80}; L=${3:-40}
     echo "==> 设置上限 ${U}% 下限 ${L}%（热生效，无需重启）"
     $A su -c "sed -i -e 's/^UPPER_LIMIT=.*/UPPER_LIMIT=$U/' -e 's/^LOWER_LIMIT=.*/LOWER_LIMIT=$L/' $CONF"
+    ;;
+  ui)
+    echo "==> 启动控制面板并在平板上打开"
+    $A su -c "sh $MODDIR/common/webui.sh start" >/dev/null 2>&1
+    PORT=$($A su -c "cat /data/adb/battery-guard/webui.port" 2>/dev/null | tr -dc '0-9')
+    if [ -n "$PORT" ]; then
+      $A su -c "sh $MODDIR/common/webui.sh open" >/dev/null 2>&1
+      echo "    面板地址: http://127.0.0.1:$PORT/"
+      echo "    已在平板浏览器中打开；也可手动输入上面的地址"
+    else
+      echo "    启动失败：请确认模块已更新到 v1.1（含 webroot 目录）"
+    fi
     ;;
   uninstall)
     echo "==> 先执行卸载清理（立即恢复系统默认充电行为）"

@@ -7,6 +7,7 @@
 - 用**滞回区间 + 最小切换间隔**双重防抖，避免在阈值附近反复通断；
 - 开机自动探测当前设备实际可用的充电控制节点，探测结果写入日志；
 - 拔掉充电器时自动恢复系统默认充电行为；
+- 模块卡片上的**「操作」按钮**打开可视化控制面板，拖动滑块即可改上下限（热生效）；
 - 模块卸载时自动把节点复位，恢复系统默认充电行为。
 
 ---
@@ -73,15 +74,23 @@ battery_guard/                      模块根目录 /data/adb/modules/battery_gu
 ├── service.sh                      开机完成后拉起守护进程（late_start service）
 ├── post-fs-data.sh                 开机早期自动探测充电控制节点
 ├── uninstall.sh                    卸载清理：杀进程 + 复位所有节点（自包含，不依赖 common）
-├── action.sh                       Magisk 卡片「执行」按钮：查看状态与最近日志
+├── action.sh                       Magisk 卡片「操作」按钮：拉起控制面板并在浏览器打开
 ├── customize.sh                    安装时修正权限、安装默认配置、立即执行一次节点探测
 ├── README.md                       本文档
 ├── META-INF/com/google/android/    供第三方 Recovery 刷入（Magisk App 安装不需要）
+├── webroot/                        控制面板前端（本地 httpd 提供，也可被 KernelSU 直接渲染）
+│   ├── index.html                  单页面板：电量 / 上下限滑块 / 预设 / 保存 / 最近日志
+│   └── cgi-bin/
+│       ├── state                   读接口：当前电量、策略、节点、守护状态（JSON）
+│       ├── set                     写接口：?u=上限&l=下限 → 校验并写入配置
+│       └── log                     读接口：最近 14 条日志（纯文本）
 └── common/
     ├── lib.sh                      公共函数库（路径、配置、日志、sysfs 读写、进程管理）
     ├── battery-guard.conf          配置文件模板（安装时复制到 /data/adb/battery-guard/）
     ├── probe.sh                    节点自动探测 + 写测试校验 → nodes.conf
     ├── supervisor.sh               守护循环：守护进程异常退出后自动拉起
+    ├── api.sh                      面板数据接口（JSON 生成 / 参数校验 / 写配置）
+    ├── webui.sh                    控制面板服务管理（start/stop/status/url/open）
     └── battery-guard-daemon.sh     守护进程：轮询电量、滞回判定、状态切换、写日志
 ```
 
@@ -123,6 +132,8 @@ battery_guard/                      模块根目录 /data/adb/modules/battery_gu
 | `LOG_TO_LOGCAT` | 1 | 同步输出到 logcat（tag: `BatteryGuard`） |
 | `RESTART_DELAY` | 30 | 守护进程异常退出后的重启延时（秒） |
 | `EARLY_START` | 0 | 1 = 在开机动画阶段就启动守护（默认开机完成后启动） |
+| `WEBUI_PORT` | 8654 | 控制面板监听端口，只绑 127.0.0.1；被占用时自动顺延 +1 |
+| `WEBUI_IDLE_TIMEOUT` | 1800 | 面板空闲多少秒后自动关闭，0 = 不自动关闭 |
 
 ---
 
@@ -362,7 +373,7 @@ adb shell su -c "magiskpolicy --live 'allow magisk sysfs_battery:file { open rea
 
 Magisk 会在重启早期执行 `uninstall.sh`，它自动完成：
 
-1. 杀掉守护进程与守护循环（先杀守护循环，防止它把守护进程重新拉起）；
+1. 杀掉守护进程、守护循环与控制面板的 httpd（先杀守护循环，防止它把守护进程重新拉起）；
 2. 把被选中的节点写回默认值；
 3. 清扫所有候选节点（正向写 1、反向写 0），确保无残留停充状态；
 4. 清理锁文件、PID 文件与节点记录。
@@ -443,7 +454,82 @@ adb shell su -c "rm -rf /data/adb/battery-guard"        # 可选：连配置一�
    想改成就地保持 80%（充电器直接给主板供电）需要内核支持输入旁路，
    该节点做不到，这是 Tab S7+ 上的硬件/驱动限制。
 
-## 九、滞回逻辑说明
+## 九、控制面板（模块「操作」按钮）
+
+在 Magisk / KernelSU / APatch 的模块列表里点 **「操作」**，会直接弹出可视化面板，
+拖动两个滑块设定上下限后点「保存并生效」即可，不用改文件、不用重启。
+
+### 9.1 按钮的触发逻辑
+
+```
+用户点「操作」
+   └─ action.sh
+        ├─ sh common/webui.sh start
+        │     ├─ 找 busybox（/data/adb/magisk/busybox 等）
+        │     ├─ 启动 httpd -f -p 127.0.0.1:8654 -h webroot/
+        │     │     · 只监听回环地址，端口被占用就 8655/8656… 顺延
+        │     │     · 写 webui.pid / webui.port；起一个 30 分钟看门狗自动关闭
+        │     └─ 回显端口
+        ├─ sh common/webui.sh open  → am start -a VIEW -d http://127.0.0.1:PORT/
+        │     （失败则回退到点名三星浏览器）
+        └─ 打印状态摘要（电量 / 节点 / 守护 PID），便于浏览器没弹出来时也能看状态
+```
+
+- 面板里**不需要 root 授权弹窗**：httpd 由 action.sh 以 root 拉起，页面通过 CGI 访问本机接口。
+- 浏览器没打开时，按摘要里的地址手动访问即可；端口在 `webui.port` 里。
+- 页面关闭不影响控制，守护进程独立在后台跑；面板 30 分钟无操作自动停服，下次点「操作」再起。
+- 在 KernelSU / APatch 上，管理器会直接内嵌渲染 `webroot/index.html`，
+  页面检测到 `ksu.exec` 桥时会自动改用 shell 通道调用同一套 `api.sh` 函数，行为一致。
+
+### 9.2 与上下限参数的绑定关系
+
+面板**不直接写 sysfs**，它只读写配置文件里的两行——真正的充电动作仍由守护进程执行，
+因此 GUI 与手动改文件、`adb-tool set` 三条路径完全等价、互不冲突：
+
+| 前端动作 | 请求 | 服务端实现 | 影响 |
+|---|---|---|---|
+| 打开/每 3s 刷新 | `GET /cgi-bin/state` | `api_state_json`（读 conf + sysfs） | 只读，返回电量、电池状态、是否插电、当前策略、节点、守护 PID |
+| 拖动滑块/点预设 | 无请求 | 纯前端，实时算「放电深度 / 平均电量」，下限超过「上限−5」自动回退 | 不改任何配置 |
+| 点「保存并生效」 | `GET /cgi-bin/set?u=75&l=45` | `api_set`：校验 → `sed` 改 `UPPER_LIMIT` / `LOWER_LIMIT` → 回读校验 | 写 `/data/adb/battery-guard/battery-guard.conf` |
+| 展开「最近记录」 | `GET /cgi-bin/log` | `api_log` | 只读，最近 14 条日志（每 15s 刷新） |
+
+`api_set` 的校验规则（前端也做了同样的夹紧，后端再兜一次）：
+
+| 输入 | 结果 |
+|---|---|
+| 上限 < 20 或 > 100 | 拒绝，返回 `{"ok":false,"msg":"上限需在 20-100 之间"}` |
+| 下限 < 5 | 拒绝，返回 `{"ok":false,"msg":"下限需不低于 5%"}` |
+| 下限 > 上限 − 5 | **自动夹紧**为 `上限−5`，返回 `adjusted:true` 并提示 |
+| 写入后回读与目标不一致 | 返回 `ok:false`（说明 conf 不可写），前端显示红字 |
+
+> 与配置文件、`adb-tool set` 的关系：三者改的都是同一个文件的同两行，
+> 所以「面板里改完，再去 adb 看 conf」看到的一定是新值；反过来手动改文件后刷新面板也会同步。
+
+### 9.3 保存后怎么生效
+
+1. `api_set` 写完立即 `grep` 回读校验，成功才返回 `ok:true`，前端显示
+   「✓ 已保存，守护进程将在 30s 内热重载并生效」；
+2. 守护进程每轮轮询（默认 30s）比较 `battery-guard.conf` 的 **mtime**，变化就 `load_conf` 重载，
+   并在日志写一行：
+   ```
+   [2026-11-08 23:13:51] 配置热重载: 上限 85%->75% 下限 35%->45% 轮询 30s->30s
+   ```
+3. 同一轮判定就用新阈值：若当前电量已高于新上限 → 立即停充；低于新下限 → 立即恢复充电；
+4. **不需要重启、不需要重启守护**；已处于停充状态时改阈值也不会误触发一次插拔会话；
+5. 想立刻确认生效，看面板右栏「最近记录」或 `adb shell su -c "grep 热重载 /data/adb/battery-guard/battery-guard.log | tail -3"`。
+
+### 9.4 手动管理面板服务
+
+```bash
+adb shell su -c "sh /data/adb/modules/battery_guard/common/webui.sh start"   # 启动，回显端口
+adb shell su -c "sh /data/adb/modules/battery_guard/common/webui.sh status"  # PID 端口
+adb shell su -c "sh /data/adb/modules/battery_guard/common/webui.sh stop"    # 停止
+./adb-tool.sh ui        # 电脑端一键启动 + 在平板上打开
+```
+
+---
+
+## 十、滞回逻辑说明
 
 ```
 电量 ≥ UPPER_LIMIT(80%) 且 充电器已连接  →  停止充电

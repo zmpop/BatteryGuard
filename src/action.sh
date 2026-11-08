@@ -1,6 +1,9 @@
 #!/system/bin/sh
-# Battery Guard - Magisk 模块按钮（Action）
-# 在 Magisk App 的模块卡片上点击"执行"按钮后显示当前状态与最近日志
+# Battery Guard - Magisk 模块「操作」按钮
+# 触发逻辑：
+#   1) 拉起本地控制面板（busybox httpd 只监听 127.0.0.1）
+#   2) 用系统浏览器打开面板，在里面拖动上下限并保存
+#   3) 服务不可用时，退化为打印状态摘要
 
 [ -n "$MODDIR" ] || MODDIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 [ -f "$MODDIR/common/lib.sh" ] || MODDIR=/data/adb/modules/battery_guard
@@ -10,13 +13,37 @@ load_conf
 load_node
 CAP_NODE=$(find_cap_node)
 
+echo "[ Battery Guard v1.1 ]"
+echo ""
+
+# 启动面板服务：输出全部丢弃。后台 httpd 会继承 fd，若接到模块对话框的管道上
+# 会让 Magisk 一直等不到 EOF（表现为点「操作」后卡住），因此这里不做命令替换。
+if command -v timeout >/dev/null 2>&1; then
+  timeout 10 sh "$MODDIR/common/webui.sh" start >/dev/null 2>&1
+else
+  sh "$MODDIR/common/webui.sh" start >/dev/null 2>&1
+fi
+PORT=$(cat "$PERSIST_DIR/webui.port" 2>/dev/null | tr -dc '0-9')
+
+if [ -n "$PORT" ]; then
+  URL="http://127.0.0.1:$PORT/"
+  echo "控制面板: $URL"
+  if sh "$MODDIR/common/webui.sh" open >/dev/null 2>&1; then
+    echo "已在浏览器中打开，可直接拖动滑块设置上下限"
+  else
+    echo "未能自动打开浏览器，请手动访问上面的地址"
+  fi
+  echo ""
+else
+  echo "控制面板未启动（缺少 busybox httpd 或端口不可用），以下为状态摘要"
+  echo ""
+fi
+
 CAP=$(read_capacity)
 ST=$(read_batt_status)
 PLUGGED=$(detect_plugged)
 [ "$PLUGGED" = "1" ] && PLG="已连接" || PLG="未连接"
 
-echo "[ Battery Guard v1.0 ]"
-echo ""
 echo "电量     : ${CAP}%   (${ST})"
 echo "充电器   : ${PLG}"
 echo "策略     : 上限 ${UPPER_LIMIT}% / 下限 ${LOWER_LIMIT}% / 轮询 ${POLL_INTERVAL}s"
@@ -38,16 +65,5 @@ fi
 echo ""
 echo "配置     : $CONF_FILE"
 echo "日志     : $LOG_FILE"
-echo ""
-echo "-------- 最近日志 --------"
-if [ -f "$LOG_FILE" ]; then
-  tail -n 15 "$LOG_FILE"
-else
-  echo "尚无日志"
-fi
-echo ""
-echo "手动启停："
-echo "  su -c 'sh $MODDIR/common/supervisor.sh &'"
-echo "  su -c 'kill \$(cat $PID_FILE)'"
 
 exit 0

@@ -14,7 +14,14 @@ load_conf
 chmod 0755 "$MODPATH/common/lib.sh" \
            "$MODPATH/common/probe.sh" \
            "$MODPATH/common/supervisor.sh" \
-           "$MODPATH/common/battery-guard-daemon.sh" 2>/dev/null
+           "$MODPATH/common/battery-guard-daemon.sh" \
+           "$MODPATH/common/api.sh" \
+           "$MODPATH/common/webui.sh" 2>/dev/null
+chmod 0755 "$MODPATH/webroot/cgi-bin/state" \
+           "$MODPATH/webroot/cgi-bin/set" \
+           "$MODPATH/webroot/cgi-bin/log" 2>/dev/null
+chmod 0755 "$MODPATH/webroot" "$MODPATH/webroot/cgi-bin" 2>/dev/null
+chmod 0644 "$MODPATH/webroot/index.html" 2>/dev/null
 chmod 0755 "$MODPATH/service.sh" \
            "$MODPATH/post-fs-data.sh" \
            "$MODPATH/uninstall.sh" \
@@ -28,7 +35,7 @@ chmod 0755 "$PERSIST_DIR" 2>/dev/null
 chmod 0644 "$CONF_FILE" 2>/dev/null
 
 ui_print "***************************************"
-ui_print "  Battery Guard v1.0 - 充电阈值守护"
+ui_print "  Battery Guard v1.1 - 充电阈值守护"
 ui_print "***************************************"
 ui_print "- 设备   : $(getprop ro.product.manufacturer) $(getprop ro.product.model)"
 ui_print "- 系统   : Android $(getprop ro.build.version.release) (SDK $(getprop ro.build.version.sdk))"
@@ -53,5 +60,5 @@ if [ "$ENABLED" = "1" ]; then
   ui_print "- 守护进程已启动，立即生效（无需重启）"
 fi
 
-ui_print "- 点击模块的「执行」按钮可随时查看状态"
+ui_print "- 点击模块的「操作」按钮：打开控制面板，拖动滑块设置上下限（保存后 30s 内生效）"
 ui_print "***************************************"

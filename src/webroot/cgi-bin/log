@@ -1,0 +1,8 @@
+#!/system/bin/sh
+# Battery Guard - 面板接口：最近日志（纯文本）
+. /data/adb/modules/battery_guard/common/api.sh
+
+printf 'Content-Type: text/plain; charset=utf-8\r\n'
+printf 'Cache-Control: no-store\r\n'
+printf 'Connection: close\r\n\r\n'
+api_log
