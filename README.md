@@ -7,9 +7,12 @@
 在三星 Galaxy Tab S7+（SM-T970 / Android 13）上实测通过，实际控制节点为
 `/sys/class/power_supply/battery/batt_slate_mode`。
 
-点模块卡片上的 **「操作」** 会打开可视化控制面板：拖动滑块设定上下限 → 保存 → 30 秒内热生效，
-不用改配置文件、不用重启。面板由模块自带的 `busybox httpd` 提供（只监听 127.0.0.1），
-不依赖任何第三方 App。
+自带可视化控制面板：拖动滑块设定上下限 → 保存 → 30 秒内热生效，不用改配置文件、不用重启。
+面板由模块自带的 `busybox httpd` 提供（只监听 `127.0.0.1:8654`），不依赖任何第三方 App。
+
+- **Magisk 28+**：模块卡片上的 **「操作」** 按钮直接打开面板；
+- **Magisk 26.x / 27.x**：Magisk 本身没有操作按钮（Action UI 自 v28 才有），面板默认开机常驻，
+  用浏览器打开 `http://127.0.0.1:8654/`，再「添加页面至 → 主屏幕」生成桌面图标即可。
 
 ## 快速开始
 
@@ -59,7 +62,7 @@ BatteryGuard/
     ├── service.sh          开机完成后拉起守护
     ├── post-fs-data.sh     开机早期探测节点
     ├── uninstall.sh        卸载清理（自包含，不依赖 common/）
-    ├── action.sh           Magisk 模块「操作」按钮：拉起控制面板
+    ├── action.sh           Magisk 28+ 的「操作」按钮：拉起控制面板
     ├── customize.sh        安装时探测节点并立即启动守护
     ├── README.md           完整文档：节点清单 / 配置 / 调试 / 排错 / 机型实测
     ├── webroot/            控制面板：index.html + cgi-bin/{state,set,log}

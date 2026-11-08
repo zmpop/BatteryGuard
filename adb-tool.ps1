@@ -36,7 +36,7 @@ try {
 
 # ---------- 常量 ----------
 $DefaultDevice = '192.168.8.176:5555'
-$ZipName       = 'BatteryGuard-v1.1.zip'
+$ZipName       = 'BatteryGuard-v1.1.1.zip'
 $ZipPath       = Join-Path $PSScriptRoot $ZipName
 $Log           = '/data/adb/battery-guard/battery-guard.log'
 $Conf          = '/data/adb/battery-guard/battery-guard.conf'
@@ -236,7 +236,7 @@ switch ($Cmd) {
             Ok "面板地址: http://127.0.0.1:$port/"
             Warn "已在平板浏览器中打开；也可手动输入上面的地址"
         } else {
-            Err "启动失败：请确认模块已更新到 v1.1（含 webroot 目录）"
+            Err "启动失败：请确认模块已更新到 v1.1.1（含 webroot 目录）"
         }
     }
 

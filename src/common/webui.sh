@@ -76,11 +76,13 @@ do_start() {
   echo "$hp" > "$PIDF"
   echo "$p" > "$PORTF"
 
-  # 空闲超时自动关闭（只关自己这一代，避免误杀后启动的新实例）
-  ( sleep "$IDLE"
-    cur=$(cat "$PIDF" 2>/dev/null | tr -dc '0-9')
-    [ "$cur" = "$hp" ] && sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1
-  ) >/dev/null 2>&1 < /dev/null &
+  # 空闲超时自动关闭（只关自己这一代，避免误杀后启动的新实例）；IDLE=0 表示常驻
+  if [ "${IDLE:-0}" -gt 0 ] 2>/dev/null; then
+    ( sleep "$IDLE"
+      cur=$(cat "$PIDF" 2>/dev/null | tr -dc '0-9')
+      [ "$cur" = "$hp" ] && sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1
+    ) >/dev/null 2>&1 < /dev/null &
+  fi
 
   echo "$p"
   return 0

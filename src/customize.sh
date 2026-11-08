@@ -35,7 +35,7 @@ chmod 0755 "$PERSIST_DIR" 2>/dev/null
 chmod 0644 "$CONF_FILE" 2>/dev/null
 
 ui_print "***************************************"
-ui_print "  Battery Guard v1.1 - 充电阈值守护"
+ui_print "  Battery Guard v1.1.1 - 充电阈值守护"
 ui_print "***************************************"
 ui_print "- 设备   : $(getprop ro.product.manufacturer) $(getprop ro.product.model)"
 ui_print "- 系统   : Android $(getprop ro.build.version.release) (SDK $(getprop ro.build.version.sdk))"

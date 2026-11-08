@@ -27,4 +27,10 @@ fi
 log_print "service.sh: 开机完成（等待 ${i}s），启动守护循环"
 /system/bin/sh "$MODDIR/common/supervisor.sh" >/dev/null 2>&1 &
 
+# 4) 控制面板常驻启动（只监听 127.0.0.1，供桌面图标/浏览器书签直达）
+if [ "${WEBUI_AUTOSTART:-1}" = "1" ] && [ -d "$MODDIR/webroot" ]; then
+  sh "$MODDIR/common/webui.sh" start >/dev/null 2>&1 < /dev/null
+  log_print "service.sh: 控制面板已启动 $(sh "$MODDIR/common/webui.sh" url 2>/dev/null)"
+fi
+
 exit 0

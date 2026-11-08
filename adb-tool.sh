@@ -21,7 +21,7 @@ set -u
 export MSYS_NO_PATHCONV=1
 
 DEFAULT_DEVICE="192.168.8.176:5555"
-ZIP="BatteryGuard-v1.1.zip"
+ZIP="BatteryGuard-v1.1.1.zip"
 ZIP_DIR=$(cd "$(dirname "$0")" && pwd)
 LOG="/data/adb/battery-guard/battery-guard.log"
 CONF="/data/adb/battery-guard/battery-guard.conf"
@@ -123,7 +123,7 @@ case "$CMD" in
       echo "    面板地址: http://127.0.0.1:$PORT/"
       echo "    已在平板浏览器中打开；也可手动输入上面的地址"
     else
-      echo "    启动失败：请确认模块已更新到 v1.1（含 webroot 目录）"
+      echo "    启动失败：请确认模块已更新到 v1.1.1（含 webroot 目录）"
     fi
     ;;
   uninstall)
