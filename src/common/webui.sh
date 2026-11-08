@@ -45,6 +45,13 @@ alive_pid() {
   echo "$p"
 }
 
+# 按「端口 + webroot」反查 httpd 进程：开机阶段 ps 可能还没列出刚 fork 的进程，
+# 用它在抓不到 PID 时兜底、并在有实例无 PID 文件时接管，避免重复起第二个 httpd
+find_httpd() {
+  ps -A -o PID,ARGS 2>/dev/null | grep -F "httpd -f -p 127.0.0.1:$1" | \
+    grep -F "$WEBROOT" | head -n 1 | awk '{print $1}'
+}
+
 do_start() {
   BB=$(find_bb) || { echo ""; return 1; }
   [ -d "$WEBROOT" ] || { echo ""; return 1; }
@@ -54,6 +61,15 @@ do_start() {
     return 0
   fi
   rm -f "$PIDF" "$PORTF" 2>/dev/null
+
+  # 已有实例在跑（例如开机时 PID 文件没写成）：直接接管，不要再起一个
+  hp=$(find_httpd "$PORT")
+  if [ -n "$hp" ] && [ -d "/proc/$hp" ]; then
+    echo "$hp" > "$PIDF"
+    echo "$PORT" > "$PORTF"
+    echo "$PORT"
+    return 0
+  fi
 
   # 选一个空闲端口：默认 8654，被占用就 +1（最多试 8 个）
   p=$PORT
@@ -68,8 +84,17 @@ do_start() {
   sleep 1
 
   # 用 PID 文件反查更可靠（setsid 后 $! 不一定是 httpd 本身）
-  hp=$(ps -A -o PID,ARGS 2>/dev/null | grep -F "httpd -f -p 127.0.0.1:$p" | grep -F "$WEBROOT" | head -n 1 | awk '{print $1}')
-  if [ -z "$hp" ] || [ ! -d "/proc/$hp" ]; then
+  # 开机阶段 httpd 拉起可能要 1s 以上，重试几次再判失败（最多约 5s）
+  hp=""
+  i=0
+  while [ "$i" -lt 5 ]; do
+    hp=$(find_httpd "$p")
+    [ -n "$hp" ] && [ -d "/proc/$hp" ] && break
+    hp=""
+    sleep 1
+    i=$((i + 1))
+  done
+  if [ -z "$hp" ]; then
     echo ""
     return 1
   fi
