@@ -8,7 +8,8 @@
 - 开机自动探测当前设备实际可用的充电控制节点，探测结果写入日志；
 - 拔掉充电器时自动恢复系统默认充电行为；
 - 自带**可视化控制面板**（`http://127.0.0.1:8654/`），拖动滑块即可改上下限（热生效）；
-  Magisk 28+ 点模块卡片的「操作」进入，Magisk 26.x 无此按钮，用桌面图标 / 浏览器书签进入；
+  **按需启动**：Magisk 28+ 点模块卡片的「操作」才拉起，空闲 15 分钟自动关闭，不占后台；
+  Magisk 26.x 无此按钮，可临时把 `WEBUI_AUTOSTART` 改回 1 用桌面图标 / 书签进入；
 - 模块卸载时自动把节点复位，恢复系统默认充电行为。
 
 ---
@@ -134,8 +135,8 @@ battery_guard/                      模块根目录 /data/adb/modules/battery_gu
 | `RESTART_DELAY` | 30 | 守护进程异常退出后的重启延时（秒） |
 | `EARLY_START` | 0 | 1 = 在开机动画阶段就启动守护（默认开机完成后启动） |
 | `WEBUI_PORT` | 8654 | 控制面板监听端口，只绑 127.0.0.1；被占用时自动顺延 +1 |
-| `WEBUI_IDLE_TIMEOUT` | 0 | 面板空闲多少秒后自动关闭，0 = 常驻（默认） |
-| `WEBUI_AUTOSTART` | 1 | 开机是否自动拉起面板（常驻后桌面图标随时可用） |
+| `WEBUI_IDLE_TIMEOUT` | 900 | 面板空闲多少秒后自动关闭；0 = 常驻不关。计时从「最后一次页面活动」算起 |
+| `WEBUI_AUTOSTART` | 0 | 0 = 按需启动（点「操作」/`action.sh` 才拉起）；1 = 开机常驻（旧行为，适合无「操作」按钮的 Magisk 26.x） |
 
 ---
 
@@ -468,9 +469,9 @@ adb shell su -c "rm -rf /data/adb/battery-guard"        # 可选：连配置一�
 | Magisk **26.x / 27.x** | 卡片只有「更新 / 移除」，**没有操作按钮**（Action UI 与 `run_action` 都是 v28 才加入的）；改用桌面图标或浏览器书签 |
 | KernelSU / APatch | 管理器内嵌渲染 `webroot/index.html` |
 
-Magisk 26.x 的推荐做法：面板默认**开机自启并常驻**（`WEBUI_AUTOSTART=1`），
-在平板上用浏览器打开 `http://127.0.0.1:8654/`，菜单「添加页面至 → 主屏幕」存一个桌面图标，
-以后点图标即可进入，效果与「操作」按钮等价；也可以直接存书签。
+Magisk 26.x 的变通做法：模块默认**按需启动**（`WEBUI_AUTOSTART=0`），没有「操作」按钮就没有入口。
+可临时把 `WEBUI_AUTOSTART` 改成 1 恢复「开机常驻」，再在平板上用浏览器打开 `http://127.0.0.1:8654/`，
+菜单「添加页面至 → 主屏幕」存一个桌面图标（或直接存书签）；不需要时把该值改回 0。
 
 ### 9.1 按钮的触发逻辑
 
@@ -481,7 +482,8 @@ Magisk 26.x 的推荐做法：面板默认**开机自启并常驻**（`WEBUI_AUT
         │     ├─ 找 busybox（/data/adb/magisk/busybox 等）
         │     ├─ 启动 httpd -f -p 127.0.0.1:8654 -h webroot/
         │     │     · 只监听回环地址，端口被占用就 8655/8656… 顺延
-        │     │     · 写 webui.pid / webui.port；WEBUI_IDLE_TIMEOUT>0 时才起空闲看门狗
+        │     │     · 写 webui.pid / webui.port，并把 webui.alive 置为当前时间
+        │     │     · 起空闲看门狗（WEBUI_IDLE_TIMEOUT>0 时）：每 30s 核对一次 webui.alive
         │     └─ 回显端口
         ├─ sh common/webui.sh open  → am start -a VIEW -d http://127.0.0.1:PORT/
         │     （失败则回退到点名三星浏览器）
@@ -490,8 +492,12 @@ Magisk 26.x 的推荐做法：面板默认**开机自启并常驻**（`WEBUI_AUT
 
 - 面板里**不需要 root 授权弹窗**：httpd 由 action.sh 以 root 拉起，页面通过 CGI 访问本机接口。
 - 浏览器没打开时，按摘要里的地址手动访问即可；端口在 `webui.port` 里。
-- 页面关闭不影响控制，守护进程独立在后台跑；面板默认常驻（要省内存可把 `WEBUI_IDLE_TIMEOUT` 改成 1800，30 分钟空闲自关）。
-- 开机后 `service.sh` 会拉起面板，日志里有一行 `service.sh: 控制面板已启动 http://127.0.0.1:8654/`。
+- **自动关闭**：页面每 3 秒取一次 `/cgi-bin/state`，每次都会刷新 `webui.alive`；浏览器关掉或平板熄屏后不再有请求，
+  看门狗在 `WEBUI_IDLE_TIMEOUT`（默认 900 秒 = 15 分钟）后杀掉 httpd 并清掉 pid/port/alive 文件，
+  日志留一行 `面板空闲 900s（最近活动 …）：关闭 httpd PID=…`。再点「操作」即可重新拉起，端口不变。
+- 页面关闭不影响控制，守护进程独立在后台跑；面板只是「看板 + 设置入口」，关掉不影响停充逻辑。
+- 默认按需启动：开机后 `service.sh` **不会**拉起面板，日志是
+  `service.sh: 控制面板按需启动（WEBUI_AUTOSTART=0）…`；点「操作」后才会打印 `控制面板: http://127.0.0.1:8654/`。
 - 在 KernelSU / APatch 上，管理器会直接内嵌渲染 `webroot/index.html`，
   页面检测到 `ksu.exec` 桥时会自动改用 shell 通道调用同一套 `api.sh` 函数，行为一致。
 

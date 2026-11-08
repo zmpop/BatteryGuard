@@ -15,10 +15,14 @@
 load_conf
 
 PORT=${WEBUI_PORT:-8654}
-IDLE=${WEBUI_IDLE_TIMEOUT:-1800}
+IDLE=${WEBUI_IDLE_TIMEOUT:-900}
 PIDF=$PERSIST_DIR/webui.pid
 PORTF=$PERSIST_DIR/webui.port
+ALIVEF=$PERSIST_DIR/webui.alive
+WDF=$PERSIST_DIR/webui.wd
 WEBROOT=$MODDIR/webroot
+# 空闲看门狗的检查粒度（秒）：越细越准，但每个周期都要起一次 shell
+IDLE_TICK=30
 
 find_bb() {
   for b in /data/adb/magisk/busybox /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox; do
@@ -52,11 +56,51 @@ find_httpd() {
     grep -F "$WEBROOT" | head -n 1 | awk '{print $1}'
 }
 
+# 空闲看门狗：ALIVEF 记录「最近一次页面活动」，每 IDLE_TICK 秒核对一次，
+# 超过 IDLE 秒没刷新就关掉自己这一代实例。IDLE=0 表示常驻，不装看门狗。
+#
+# 必须用「独立进程」拉起（sh webui.sh __watchdog），不能在当前 shell 里 fork 子 shell：
+# mksh 为恢复重定向会在 fd 10+ 保存原 stdout 的副本，那份副本会一直攥着调用方的管道，
+# 导致 $(webui.sh start) 这种命令替换被拖住整整一个空闲周期才返回。
+idle_watchdog() {
+  wd_target=$1
+  [ "${IDLE:-0}" -gt 0 ] 2>/dev/null || return 0
+  old=$(cat "$WDF" 2>/dev/null | tr -dc '0-9')
+  [ -n "$old" ] && kill -9 "$old" 2>/dev/null
+  setsid sh "$MODDIR/common/webui.sh" __watchdog "$wd_target" >/dev/null 2>&1 < /dev/null &
+  return 0
+}
+
+# 看门狗主体（独立进程内运行，自己写 PID 文件）
+do_watchdog() {
+  wd_target=$1
+  [ -n "$wd_target" ] || return 1
+  [ "${IDLE:-0}" -gt 0 ] 2>/dev/null || return 0
+  echo $$ > "$WDF" 2>/dev/null
+  while :; do
+    sleep "$IDLE_TICK"
+    cur=$(cat "$PIDF" 2>/dev/null | tr -dc '0-9')
+    [ "$cur" = "$wd_target" ] || return 0
+    [ -d "/proc/$wd_target" ] || return 0
+    last=$(cat "$ALIVEF" 2>/dev/null | tr -dc '0-9')
+    now=$(date +%s 2>/dev/null | tr -dc '0-9')
+    [ -n "$now" ] || return 0
+    [ -n "$last" ] || last=$now
+    [ $((now - last)) -ge "$IDLE" ] || continue
+    log_print "面板空闲 ${IDLE}s（最近活动 ${last}）：关闭 httpd PID=$wd_target"
+    sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1
+    return 0
+  done
+}
+
 do_start() {
   BB=$(find_bb) || { echo ""; return 1; }
   [ -d "$WEBROOT" ] || { echo ""; return 1; }
 
   if alive_pid >/dev/null 2>&1; then
+    # 已在运行：续命（刷新活动时间）并确保看门狗在岗，然后原样回显端口
+    date +%s > "$ALIVEF" 2>/dev/null
+    idle_watchdog "$(alive_pid)"
     cat "$PORTF" 2>/dev/null | tr -dc '0-9'
     return 0
   fi
@@ -67,6 +111,8 @@ do_start() {
   if [ -n "$hp" ] && [ -d "/proc/$hp" ]; then
     echo "$hp" > "$PIDF"
     echo "$PORT" > "$PORTF"
+    date +%s > "$ALIVEF" 2>/dev/null
+    idle_watchdog "$hp"
     echo "$PORT"
     return 0
   fi
@@ -100,20 +146,18 @@ do_start() {
   fi
   echo "$hp" > "$PIDF"
   echo "$p" > "$PORTF"
-
-  # 空闲超时自动关闭（只关自己这一代，避免误杀后启动的新实例）；IDLE=0 表示常驻
-  if [ "${IDLE:-0}" -gt 0 ] 2>/dev/null; then
-    ( sleep "$IDLE"
-      cur=$(cat "$PIDF" 2>/dev/null | tr -dc '0-9')
-      [ "$cur" = "$hp" ] && sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1
-    ) >/dev/null 2>&1 < /dev/null &
-  fi
+  # 起看门狗前先记一次活动时间，否则 IDLE 从「没有任何时间戳」开始算会立刻超时
+  date +%s > "$ALIVEF" 2>/dev/null
+  idle_watchdog "$hp"
 
   echo "$p"
   return 0
 }
 
 do_stop() {
+  # 先收看门狗，否则它会在 httpd 被杀后误判「实例不见了」再多跑一轮
+  wd=$(cat "$WDF" 2>/dev/null | tr -dc '0-9')
+  [ -n "$wd" ] && kill -9 "$wd" 2>/dev/null
   if p=$(alive_pid); then
     kill -9 "$p" 2>/dev/null
   fi
@@ -122,7 +166,7 @@ do_stop() {
     awk '{print $1}' | while read -r pid; do
       [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
     done
-  rm -f "$PIDF" "$PORTF" 2>/dev/null
+  rm -f "$PIDF" "$PORTF" "$ALIVEF" "$WDF" 2>/dev/null
   return 0
 }
 
@@ -151,5 +195,6 @@ case "${1:-start}" in
   status)  p=$(alive_pid) && echo "$p $(cat "$PORTF" 2>/dev/null | tr -dc '0-9')" ;;
   url)     do_url ;;
   open)    do_open ;;
+  __watchdog) do_watchdog "$2" ;;   # 内部用：由 idle_watchdog 以独立进程拉起
   *)       echo "用法: $0 start|stop|restart|status|url|open"; exit 1 ;;
 esac

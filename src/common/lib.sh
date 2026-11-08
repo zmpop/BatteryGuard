@@ -33,8 +33,10 @@ CURRENT_LIMIT_VALUE=0
 RESTART_DELAY=30
 EARLY_START=0
 WEBUI_PORT=8654
-WEBUI_IDLE_TIMEOUT=0
-WEBUI_AUTOSTART=1
+# 面板空闲多少秒后自动关闭；0 = 常驻。默认 900（15 分钟，从最后一次页面取数算起）
+WEBUI_IDLE_TIMEOUT=900
+# 是否开机自动拉起面板；0 = 按需启动（点「操作」或跑 action.sh 才起）
+WEBUI_AUTOSTART=0
 TRUST_USB_ONLINE=0
 TRUST_CHARGING_TYPE=1
 TRUST_CHARGING_SOURCE=1
@@ -133,6 +135,16 @@ log_rotate() {
     rm -f "$LOG_FILE.tmp"
     [ "$LOG_VERBOSE" = "1" ] && log_print "日志轮转已跳过：校验未通过（原 ${old:-?} 字节 / 裁剪后 ${new:-?} 字节）"
   fi
+}
+
+# ---------------- 控制面板保活 ----------------
+# webui.alive 记录「最近一次页面活动」的 epoch 秒；webui.sh 的空闲看门狗据此判断是否该关。
+# 面板没在跑时（文件不存在）什么都不做，避免留下陈旧时间戳。
+webui_touch() {
+  alive=$PERSIST_DIR/webui.alive
+  [ -f "$alive" ] || return 0
+  date +%s > "$alive" 2>/dev/null
+  return 0
 }
 
 # ---------------- sysfs 读写 ----------------

@@ -27,10 +27,15 @@ fi
 log_print "service.sh: 开机完成（等待 ${i}s），启动守护循环"
 /system/bin/sh "$MODDIR/common/supervisor.sh" >/dev/null 2>&1 &
 
-# 4) 控制面板常驻启动（只监听 127.0.0.1，供桌面图标/浏览器书签直达）
-if [ "${WEBUI_AUTOSTART:-1}" = "1" ] && [ -d "$MODDIR/webroot" ]; then
+# 4) 控制面板：默认按需启动（WEBUI_AUTOSTART=0），点「操作」/ action.sh 时才拉起
+#    WEBUI_AUTOSTART=1 时才在开机后常驻（旧行为，适合没有「操作」按钮的 Magisk 26.x）
+if [ "${WEBUI_AUTOSTART:-0}" = "1" ] && [ -d "$MODDIR/webroot" ]; then
   sh "$MODDIR/common/webui.sh" start >/dev/null 2>&1 < /dev/null
-  log_print "service.sh: 控制面板已启动 $(sh "$MODDIR/common/webui.sh" url 2>/dev/null)"
+  log_print "service.sh: 控制面板已启动（WEBUI_AUTOSTART=1）$(sh "$MODDIR/common/webui.sh" url 2>/dev/null)"
+else
+  # 顺手清掉上次运行留下的 PID/端口/活动时间戳（进程已随关机消失）
+  sh "$MODDIR/common/webui.sh" stop >/dev/null 2>&1 < /dev/null
+  log_print "service.sh: 控制面板按需启动（WEBUI_AUTOSTART=0），点「操作」或运行 action.sh 时才起，空闲 ${WEBUI_IDLE_TIMEOUT}s 自动关闭"
 fi
 
 exit 0

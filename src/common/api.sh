@@ -16,6 +16,8 @@ json_escape() {
 }
 
 api_state_json() {
+  # 页面每 3s 取一次状态：这里刷新活动时间，空闲看门狗据此续命
+  webui_touch
   load_conf
   load_node
   CAP_NODE=$(find_cap_node)
@@ -41,6 +43,7 @@ api_state_json() {
 }
 
 api_set() {
+  webui_touch
   load_conf
   u=$(printf '%s' "${1:-}" | tr -dc '0-9')
   l=$(printf '%s' "${2:-}" | tr -dc '0-9')
@@ -82,6 +85,7 @@ api_set() {
 }
 
 api_log() {
+  webui_touch
   if [ -f "$LOG_FILE" ]; then
     tail -n 14 "$LOG_FILE" 2>/dev/null
   else

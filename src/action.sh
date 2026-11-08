@@ -13,7 +13,9 @@ load_conf
 load_node
 CAP_NODE=$(find_cap_node)
 
-echo "[ Battery Guard v1.1 ]"
+VER=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | head -n 1 | cut -d= -f2)
+[ -n "$VER" ] || VER="v?"
+echo "[ Battery Guard $VER ]"
 echo ""
 
 # 启动面板服务：输出全部丢弃。后台 httpd 会继承 fd，若接到模块对话框的管道上
@@ -25,6 +27,13 @@ else
 fi
 PORT=$(cat "$PERSIST_DIR/webui.port" 2>/dev/null | tr -dc '0-9')
 
+# 首次失败重试一次：开机后首次启动偶发 busybox 尚未就绪
+if [ -z "$PORT" ]; then
+  sleep 1
+  sh "$MODDIR/common/webui.sh" start >/dev/null 2>&1
+  PORT=$(cat "$PERSIST_DIR/webui.port" 2>/dev/null | tr -dc '0-9')
+fi
+
 if [ -n "$PORT" ]; then
   URL="http://127.0.0.1:$PORT/"
   echo "控制面板: $URL"
@@ -32,6 +41,9 @@ if [ -n "$PORT" ]; then
     echo "已在浏览器中打开，可直接拖动滑块设置上下限"
   else
     echo "未能自动打开浏览器，请手动访问上面的地址"
+  fi
+  if [ "${WEBUI_IDLE_TIMEOUT:-0}" -gt 0 ] 2>/dev/null; then
+    echo "面板空闲 ${WEBUI_IDLE_TIMEOUT}s 后自动关闭（重新点「操作」即可再次打开）"
   fi
   echo ""
 else
